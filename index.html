@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Hide and Seek World Map</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        body { margin: 0; padding: 0; font-family: system-ui, sans-serif; }
+        #map { height: 100vh; width: 100%; }
+        #panel {
+            position: absolute; top: 10px; right: 10px; z-index: 1000;
+            background: white; padding: 12px; border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3); width: 260px;
+            font-size: 13px;
+        }
+        #panel h3 { margin: 0 0 8px; font-size: 15px; }
+        #panel label { display: block; margin-top: 6px; font-weight: 600; }
+        #panel input[type=number] { width: 100%; box-sizing: border-box; padding: 4px; margin-top: 2px; }
+        #panel .row { display: flex; gap: 6px; margin-top: 6px; }
+        #panel button {
+            flex: 1; padding: 6px; cursor: pointer; border: none;
+            border-radius: 4px; background: #e0e0e0; font-size: 12px;
+        }
+        #panel button.active { background: #2a7ae2; color: white; }
+        #panel button.primary { background: #2a7ae2; color: white; }
+        #panel button.danger  { background: #e05a5a; color: white; }
+        #list { margin-top: 8px; max-height: 180px; overflow-y: auto; font-size: 12px; }
+        #list div { padding: 2px 0; border-bottom: 1px solid #eee; }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+
+    <div id="panel">
+        <h3>Hide &amp; Seek Map</h3>
+
+        <label>Mode</label>
+        <div class="row">
+            <button id="modeHide" class="active">Hide spot</button>
+            <button id="modeSeek">Seeker Q</button>
+        </div>
+        <div class="row">
+            <button id="toggleClick" class="primary">Click-to-place: ON</button>
+        </div>
+
+        <label>Manual coordinates</label>
+        <input type="number" id="lat" step="any" placeholder="Latitude (e.g. 48.8584)">
+        <input type="number" id="lng" step="any" placeholder="Longitude (e.g. 2.2945)">
+        <div class="row">
+            <button id="addManual" class="primary">Add</button>
+            <button id="clearAll" class="danger">Clear all</button>
+        </div>
+
+        <div id="list"></div>
+    </div>
+
+    <script>
+        var map = L.map('map').setView([20, 0], 2);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+
+        // ---------- State ----------
+        var currentMode = 'hide';   // 'hide' | 'seek'
+        var clickMode = true;       // true = click map to place
+        var hideSpots = [];         // [{lat,lng,marker}]
+        var seekSpots = [];         // [{lat,lng,marker}]
+
+        var hideLayer = L.layerGroup().addTo(map);
+        var seekLayer = L.layerGroup().addTo(map);
+
+        // ---------- Helpers ----------
+        function colorFor(mode) {
+            return mode === 'hide' ? '#c0392b' : '#2a7ae2';
+        }
+
+        function addSpot(mode, lat, lng, label) {
+            if (isNaN(lat) || isNaN(lng)) return;
+            var color = colorFor(mode);
+            var marker = L.circleMarker([lat, lng], {
+                radius: 8, color: color, fillColor: color, fillOpacity: 0.85, weight: 2
+            });
+            var popupText = (label || (mode === 'hide' ? 'Hide spot' : 'Seeker Q'))
+                + '<br>' + lat.toFixed(5) + ', ' + lng.toFixed(5);
+            marker.bindPopup(popupText);
+            marker.addTo(mode === 'hide' ? hideLayer : seekLayer);
+
+            var entry = { lat: lat, lng: lng, marker: marker };
+            (mode === 'hide' ? hideSpots : seekSpots).push(entry);
+            renderList();
+        }
+
+        function renderList() {
+            var list = document.getElementById('list');
+            list.innerHTML = '';
+            hideSpots.forEach(function (s, i) {
+                list.innerHTML += '<div>🔴 Hide ' + (i+1) + ': ' + s.lat.toFixed(4) + ', ' + s.lng.toFixed(4) + '</div>';
+            });
+            seekSpots.forEach(function (s, i) {
+                list.innerHTML += '<div>🔵 Seeker ' + (i+1) + ': ' + s.lat.toFixed(4) + ', ' + s.lng.toFixed(4) + '</div>';
+            });
+        }
+
+        function exportJSON() {
+            function strip(arr) { return arr.map(function(s){ return { lat: s.lat, lng: s.lng }; }); }
+            var data = { hideSpots: strip(hideSpots), seekSpots: strip(seekSpots) };
+            console.log('=== Copy this into your file to make it permanent ===');
+            console.log(JSON.stringify(data, null, 2));
+            alert('Exported to browser console (F12).\n\n' + JSON.stringify(data, null, 2).slice(0, 300) + '...');
+        }
+
+        // ---------- UI wiring ----------
+        var btnHide = document.getElementById('modeHide');
+        var btnSeek = document.getElementById('modeSeek');
+        var btnClick = document.getElementById('toggleClick');
+
+        btnHide.onclick = function () {
+            currentMode = 'hide';
+            btnHide.classList.add('active'); btnSeek.classList.remove('active');
+        };
+        btnSeek.onclick = function () {
+            currentMode = 'seek';
+            btnSeek.classList.add('active'); btnHide.classList.remove('active');
+        };
+        btnClick.onclick = function () {
+            clickMode = !clickMode;
+            btnClick.textContent = 'Click-to-place: ' + (clickMode ? 'ON' : 'OFF');
+            btnClick.classList.toggle('active', clickMode);
+        };
+
+        document.getElementById('addManual').onclick = function () {
+            var lat = parseFloat(document.getElementById('lat').value);
+            var lng = parseFloat(document.getElementById('lng').value);
+            if (isNaN(lat) || isNaN(lng)) { alert('Enter valid numbers.'); return; }
+            addSpot(currentMode, lat, lng);
+            document.getElementById('lat').value = '';
+            document.getElementById('lng').value = '';
+        };
+
+        document.getElementById('clearAll').onclick = function () {
+            if (!confirm('Remove all markers?')) return;
+            hideLayer.clearLayers(); seekLayer.clearLayers();
+            hideSpots.length = 0; seekSpots.length = 0;
+            renderList();
+        };
+
+        // Click on map to place a marker in the current mode
+        map.on('click', function (e) {
+            if (!clickMode) return;
+            addSpot(currentMode, e.latlng.lat, e.latlng.lng);
+        });
+
+        // Expose export button via double-click on panel title (hidden trick)
+        document.querySelector('#panel h3').ondblclick = exportJSON;
+    </script>
+</body>
+</html>
